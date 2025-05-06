@@ -1,8 +1,7 @@
-const mongoose = require('mongoose');
+const mongoose = require('mongoose'); // Envio hacia el Mongoose antes de poder utilizarlo
 
 const envioSchema = new mongoose.Schema({
-  _id: String,
-  usuarioId: String,
+  usuarioId: { type: String, required: true },
   nombre: String,
   direccion: String,
   telefono: String,
@@ -14,6 +13,6 @@ const envioSchema = new mongoose.Schema({
     bultos: Number,
     fecha_entrega: String
   }
-});
+}, { timestamps: true }); 
 
 module.exports = mongoose.model('Envio', envioSchema);

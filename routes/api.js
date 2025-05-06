@@ -1,55 +1,39 @@
 const express = require('express');
 const router = express.Router();
-
 const Usuario = require('../models/Usuario');
 const Envio = require('../models/Envio');
 
-
-// Obtener créditos del usuario por ID
-router.get('/usuario/:id/creditos', async (req, res) => {
+// GET: consultar saldo de un usuario
+router.get('/usuario/:id/credito', async (req, res) => {
   try {
-    const { id } = req.params;
-    const usuario = await Usuario.findById(id);
-
-    if (!usuario) {
-      return res.status(404).json({ mensaje: 'Usuario no encontrado' });
-    }
-
-    res.json({ credito: usuario.credito });
+    const cliente = await Usuario.findById(req.params.id);
+    if (!cliente) return res.status(404).json({ mensaje: 'Usuario no localizado' });
+    res.json({ credito: cliente.credito });
   } catch (error) {
-    res.status(500).json({ error: 'Error al obtener créditos' });
+    res.status(500).json({ error: 'No se pudo consultar el crédito disponible' });
   }
 });
 
-
-// Registrar un nuevo envío
+// POST: crear un nuevo envío
 router.post('/envios', async (req, res) => {
   try {
-    const {
-      _id,
-      usuarioId,
-      nombre,
-      direccion,
-      telefono,
-      referencia,
-      observacion,
-      producto
-    } = req.body;
+    const { usuarioId, nombre, direccion, telefono, referencia, observacion, producto } = req.body;
 
-    const usuario = await Usuario.findById(usuarioId);
-    if (!usuario) {
-      return res.status(404).json({ mensaje: 'Usuario no encontrado' });
+    console.log('Datos de envío:', req.body);
+
+    const cliente = await Usuario.findById(usuarioId);
+    if (!cliente) return res.status(404).json({ mensaje: 'No se encontró el usuario' });
+
+    const { peso, bultos } = producto;
+
+    // Cálculo del costo estimado por peso y cantidad de bultos
+    const costoEnvio = Math.ceil((peso / 3) + (bultos * 0.5));
+
+    if (cliente.credito < costoEnvio) {
+      return res.status(400).json({ mensaje: 'Fondos insuficientes para este envío' });
     }
 
-    const peso = producto.peso;
-    const costo = peso > 3 ? Math.ceil(peso / 3) : 1;
-
-    if (usuario.credito < costo) {
-      return res.status(400).json({ mensaje: 'Créditos insuficientes' });
-    }
-
-    const envio = new Envio({
-      _id,
+    const envioNuevo = new Envio({
       usuarioId,
       nombre,
       direccion,
@@ -59,57 +43,53 @@ router.post('/envios', async (req, res) => {
       producto
     });
 
-    await envio.save();
+    await envioNuevo.save();
+    cliente.credito -= costoEnvio;
 
-    usuario.credito -= costo;
-    await usuario.save();
+    console.log('Crédito actualizado tras registrar el envío:', cliente.credito);
 
-    res.json({ mensaje: 'Envío ha sido registrado', envio });
+    await cliente.save();
+
+    res.json({ mensaje: 'Envío guardado correctamente', envio: envioNuevo });
   } catch (error) {
-    res.status(500).json({ error: 'Error al registrar envío' });
+    res.status(500).json({ error: 'No se pudo procesar el envío' });
   }
 });
 
-
-// Obtener envíos por usuario
+// GET: obtener todos los envíos de un usuario
 router.get('/envios/:usuarioId', async (req, res) => {
   try {
-    const { usuarioId } = req.params;
-    const envios = await Envio.find({ usuarioId });
-
-    res.json(envios);
+    const lista = await Envio.find({ usuarioId: req.params.usuarioId });
+    res.json(lista);
   } catch (error) {
-    res.status(500).json({ error: 'Error al consultar envíos' });
+    res.status(500).json({ error: 'Error al recuperar los envíos del usuario' });
   }
 });
 
-
-// Eliminar envío y reembolsar créditos
+// DELETE: cancelar envío y restaurar crédito
 router.delete('/envios/:envioId', async (req, res) => {
   try {
-    const { envioId } = req.params;
-    const envio = await Envio.findById(envioId);
+    console.log('Procesando eliminación de envío ID:', req.params.envioId);
 
-    if (!envio) {
-      return res.status(404).json({ mensaje: 'Envío no encontrado' });
-    }
+    const envio = await Envio.findById(req.params.envioId);
+    if (!envio) return res.status(404).json({ mensaje: 'Envío no encontrado' });
 
-    const usuario = await Usuario.findById(envio.usuarioId);
-    if (!usuario) {
-      return res.status(404).json({ mensaje: 'Usuario no encontrado' });
-    }
+    const propietario = await Usuario.findById(envio.usuarioId);
+    if (!propietario) return res.status(404).json({ mensaje: 'Usuario relacionado no encontrado' });
 
-    const peso = envio.producto.peso;
-    const creditoReembolsado = peso > 3 ? Math.ceil(peso / 3) : 1;
+    const pesoEnvio = envio.producto.peso;
+    const devolucion = pesoEnvio <= 3 ? 1 : Math.ceil(pesoEnvio / 3);
 
-    usuario.credito += creditoReembolsado;
-    await usuario.save();
+    propietario.credito += devolucion;
 
+    console.log('Saldo actualizado antes de guardar:', propietario.credito);
+
+    await propietario.save();
     await envio.deleteOne();
 
-    res.json({ mensaje: 'Envío eliminado y crédito reembolsado' });
+    res.json({ mensaje: 'Envío eliminado y saldo reembolsado' });
   } catch (error) {
-    res.status(500).json({ error: 'Error al borrar envío' });
+    res.status(500).json({ error: 'Error al intentar eliminar el registro' });
   }
 });
 
